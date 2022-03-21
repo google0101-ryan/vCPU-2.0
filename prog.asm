@@ -26,32 +26,32 @@ start:
 	mi
 	m r0, 1
 	m r1, page_tables
-	mtsr
+	mtsr ; Write the address of our page tables to SR1
 	m r0, 0
 	m r1, 1
-	mtsr
+	mtsr ; Enable paging
 	m r0, higher_half+0xC0000000
-	j r0
-higher_half:
+	j r0 ; Long jump to higher half memory
+higher_half: ; 0xC0000023
 	m r31, stack_top+0xC0000000
-	m r30, stack_bottom+0xC0000000
+	m r30, stack_bottom+0xC0000000 ; Set up stack
     m r2, 0
-    m page_tables, r2
+    m page_tables, r2 ; Unmap the lower 4 MiB
     m r0, 2
     m r1, int_table+0xC0000000
-    mtsr
+    mtsr ; Setup the interrupt table
     m r2, task_2+0xC0000000
-    m mp_struc.entry_2+0xC0000000, r2
-    umi
+    m mp_struc.entry_2+0xC0000000, r2 ; Setup tasking
+    umi ; Enable interrupts
 task_1:
     m r0, 0xDEADBABA
-    int 1
+    int 1 ; Yield();
     j task_1+0xC0000000
 task_2:
     m r0, 0xDEADCAFE
-    int 1
+    int 1 ; Yield();
     j task_2+0xC0000000
-
+mi
 hlt
 
 mp_switch:
