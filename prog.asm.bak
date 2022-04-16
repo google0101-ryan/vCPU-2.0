@@ -21,7 +21,6 @@
 }
 
 PAGE_ADDR = 0xC0000000 >> 22
-USER_PAGE_ADDR = 0 >> 22
 
 start:
 	mi
@@ -38,12 +37,53 @@ higher_half: ; 0xC0000023
 	m r30, stack_bottom+0xC0000000 ; Set up stack
     m r2, 0
     m page_tables, r2 ; Unmap the lower 4 MiB
-    m r2, 0x00001F05 ; Map 0x00000000 to 0x00001F00 (For usermode programs)
-    m page_tables+0xC0000000, r2
-    m r0, halt+0xC0000000
-halt:
-    j r0
+    m r0, 2
+    m r1, int_table+0xC0000000
+    mtsr ; Setup the interrupt table
+    m r2, task_2+0xC0000000
+    m mp_struc.entry_2+0xC0000000, r2 ; Setup tasking
+    umi ; Enable interrupts
+task_1:
+    m r0, 0xDEADBABA
+    int 1 ; Yield();
+    j task_1+0xC0000000
+task_2:
+    m r0, 0xDEADCAFE
+    int 1 ; Yield();
+    j task_2+0xC0000000
+mi
+hlt
 
+mp_switch:
+#d32 0
+	
+mp_handler:
+    m8 r0, [mp_switch+0xC0000000]
+    cmp r0, 1
+    je use_entry_2+0xC0000000
+use_entry_1:
+    pop r0
+    m mp_struc.entry_1+0xC0000000, r0
+    m r0, [mp_struc.entry_2+0xC0000000]
+    push r0
+    m r2, 1
+    m mp_switch+0xC0000000, r2
+    j end_handler+0xC0000000
+use_entry_2:
+    pop r0
+    m mp_struc.entry_2+0xC0000000, r0
+    m r0, [mp_struc.entry_1+0xC0000000]
+    push r0
+    m r2, 0
+    m mp_switch+0xC0000000, r2
+end_handler:
+    iret
+
+mp_struc:
+.entry_1:
+#d32 0
+.entry_2:
+#d32 0
 	
 page_tables:
 #d8 5
@@ -55,6 +95,13 @@ page_tables:
 #d8 0
 #d8 0
 #d8 0
+
+int_loc = mp_handler + 0xC0000000
+int_table:
+#d32 0
+#d8 0
+#d32 int_loc[7:0] @ int_loc[15:8] @ int_loc[23:16] @ int_loc[31:24]
+#d8 1
 
 stack_bottom:
 #addr stack_bottom+0x500

@@ -13,6 +13,83 @@ private:
     uint32_t pc;
     uint8_t id;
     bool halted = false;
+    
+    struct CacheLine
+    {
+        uint32_t addr;
+        uint8_t data;
+        uint8_t hits;
+    };
+
+    CacheLine icache[1024];
+    CacheLine dcache[1024];
+    uint8_t pipeline[4];
+
+    uint8_t AdvancePipeline()
+    {
+        uint8_t data = pipeline[0];
+        pipeline[0] = pipeline[1];
+        pipeline[1] = pipeline[2];
+        pipeline[2] = pipeline[3];
+        pipeline[3] = ReadInstr();
+        return data;
+    }
+
+    uint32_t ReadPipeline()
+    {
+        uint32_t data;
+        data = AdvancePipeline();
+        data |= AdvancePipeline() << 8;
+        data |= AdvancePipeline() << 16;
+        data |= AdvancePipeline() << 24;
+        return data;
+    }
+
+    void FlushPipeline()
+    {
+        pipeline[0] = ReadInstr();
+        pipeline[1] = ReadInstr();
+        pipeline[2] = ReadInstr();
+        pipeline[3] = ReadInstr();
+    }
+
+    uint8_t ReadInstr()
+    {
+        for (auto& i : icache)
+            if (i.addr == pc && i.hits != 0) // Ensure we have valid cache data, since we start at pc = 0x0
+            {
+                pc++;
+                i.hits++;
+                return i.data;
+            }
+        uint8_t lowest_hits = 0xFF;
+        CacheLine* lowest_cache;
+
+        for (auto& i : icache)
+        {
+            if (i.hits < lowest_hits)
+            {
+                lowest_hits = i.hits;
+                lowest_cache = &i;
+            }
+        }
+
+        lowest_cache->hits++;
+        lowest_cache->addr = pc;
+        lowest_cache->data = Read8(pc++);
+
+        return lowest_cache->data;
+    }
+
+    void UpdateCache(uint32_t addr, uint8_t data)
+    {
+        for (auto& i : dcache)
+            if (i.addr == addr && i.hits)
+            {
+                i.hits++;
+                i.data = data;
+            }
+    }
 
     uint8_t ram[0xFFFF];
     union
@@ -32,13 +109,36 @@ private:
     void TranslateAddr(uint32_t& addr, bool w);
     uint8_t ReadRaw8(uint32_t addr)
     {
+        for (auto& i : dcache)
+        {
+            if (i.addr == addr && i.hits)
+            {
+                i.hits++;
+                return i.data;
+            }
+        }
+
+        uint8_t lowest_hits = 0xFF;
+        CacheLine* lowest_cache;
+
+        for (auto& i : dcache)
+        {
+            if (i.hits < lowest_hits)
+            {
+                lowest_hits = i.hits;
+                lowest_cache = &i;
+            }
+        }
+        lowest_cache->addr = addr;
+        lowest_cache->hits = 1;
         if (addr < 0xFFFF)
-            return ram[addr];
+            lowest_cache->data = ram[addr];
         else
         {
             printf("[CPU%d]: Read from unknown addr 0x%08X\n", id, addr);
             exit(1);
         }
+        return lowest_cache->data;
     }
     uint32_t ReadRaw32(uint32_t addr)
     {
@@ -52,6 +152,7 @@ private:
 
     void WriteRaw8(uint32_t addr, uint8_t data)
     {
+        UpdateCache(addr, data); // Make sure, if we're writing to cache, to update the correct entry
         if (addr < 0xFFFF)
             ram[addr] = data;
         else

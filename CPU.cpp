@@ -16,6 +16,8 @@ CPU::CPU()
     flags.IF = true;
     sr[0] = 0;
 
+    FlushPipeline();
+
     lookup[0x06] = std::bind(&CPU::m_r_imm, this);
     lookup[0x08] = std::bind(&CPU::mi, this);
     lookup[0x09] = std::bind(&CPU::umi, this);
@@ -71,7 +73,7 @@ void CPU::Clock()
 {
     if (halted)
         return;
-    uint8_t opcode = Read8(pc++);
+    uint8_t opcode = AdvancePipeline();
 
     if (!lookup[opcode])
     {
